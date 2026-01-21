@@ -3,8 +3,8 @@
 # See http://www.apache.org/licenses/LICENSE-2.0 for details.
 
 """
-Robust async utilities for running async code in various contexts.
-Handles both synchronous and asynchronous environments gracefully.
+在各种上下文中运行异步代码的健壮异步工具
+优雅地处理同步和异步环境
 """
 
 import asyncio
@@ -18,50 +18,48 @@ logger = logging.getLogger(__name__)
 
 T = TypeVar("T")
 
-# Thread-local storage for tracking nested calls and loop ownership
+# 线程本地存储，用于跟踪嵌套调用和循环所有权
 _local = threading.local()
 
-# Track all loops created by this module for cleanup
+# 跟踪此模块创建的所有循环以便清理
 _created_loops = weakref.WeakSet()
 
 
 def setup_windows_policy():
-    """
-    Setup Windows-specific event loop policy for better compatibility.
-    ProactorEventLoop has limitations in terms of subprocess pipelines.
+    """设置Windows特定的事件循环策略以获得更好的兼容性
+
+    ProactorEventLoop在子进程管道方面有局限性
     """
     if sys.platform == "win32":
         asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
 
 
 def is_event_loop_running() -> bool:
-    """
-    Check if an event loop is currently running.
+    """检查事件循环当前是否正在运行
 
-    This is more robust than just checking get_running_loop().
+    这比仅检查get_running_loop()更健壮
 
     Returns:
-        True if an event loop is running, False otherwise.
+        bool: 如果事件循环正在运行返回True，否则返回False
     """
     try:
         loop = asyncio.get_running_loop()
-        # Double check that the loop is actually running
+        # 再次检查循环确实在运行
         return loop is not None and loop.is_running() and not loop.is_closed()
     except RuntimeError:
-        # No running loop in current context
+        # 当前上下文中没有运行的循环
         return False
 
 
 def get_or_create_event_loop() -> asyncio.AbstractEventLoop:
-    """
-    Get the current event loop or create a new one if necessary.
+    """获取当前事件循环或在必要时创建一个新的
 
     Returns:
-        An event loop instance.
+        asyncio.AbstractEventLoop: 事件循环实例
 
     Note:
-        This function does NOT handle the case where a loop is already running.
-        Use `run_async` for that scenario.
+        此函数不处理循环已在运行的情况。
+        对于这种情况，请使用`run_async`。
     """
     try:
         loop = asyncio.get_event_loop()
@@ -71,7 +69,7 @@ def get_or_create_event_loop() -> asyncio.AbstractEventLoop:
             _created_loops.add(loop)
         return loop
     except RuntimeError:
-        # No event loop in current thread
+        # 当前线程中没有事件循环
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
         _created_loops.add(loop)
@@ -79,38 +77,37 @@ def get_or_create_event_loop() -> asyncio.AbstractEventLoop:
 
 
 def run_async(coro: Coroutine[Any, Any, T], timeout: Optional[float] = None) -> T:
-    """
-    Smart async coroutine runner that works in any context.
+    """智能异步协程运行器，适用于任何上下文
 
-    This function can be called from:
-    - Synchronous code (will create and manage event loop)
-    - Inside an async function (will use thread pool)
-    - From a thread with or without an event loop
+    此函数可以从以下环境调用：
+    - 同步代码(将创建和管理事件循环)
+    - 异步函数内部(将使用线程池)
+    - 带有或不带有事件循环的线程
 
     Args:
-        coro: Coroutine to run
-        timeout: Optional timeout in seconds
+        coro: 要运行的协程
+        timeout: 可选的超时时间(秒)
 
     Returns:
-        The result of the coroutine
+        T: 协程的结果
 
     Raises:
-        asyncio.TimeoutError: If timeout is specified and exceeded
-        Exception: Any exception raised by the coroutine
+        asyncio.TimeoutError: 如果指定了超时并超出
+        Exception: 协程抛出的任何异常
     """
-    # Check for nested calls to prevent deadlock
+    # 检查嵌套调用以防止死锁
     if hasattr(_local, "in_run_async") and _local.in_run_async:
-        logger.warning("Nested run_async detected, using thread pool to avoid deadlock")
+        logger.warning("检测到嵌套run_async，使用线程池以避免死锁")
         return _run_in_thread(coro, timeout)
 
-    # Check if we're in an async context
+    # 检查我们是否在异步上下文中
     if is_event_loop_running():
-        # We're already in an async context, use thread pool
-        logger.debug("Detected running event loop, using thread pool executor")
+        # 我们已经在异步上下文中，使用线程池
+        logger.debug("检测到运行中的事件循环，使用线程池执行器")
         return _run_in_thread(coro, timeout)
     else:
-        # No running loop, we can safely create and use one
-        logger.debug("No running event loop, creating new one")
+        # 没有运行的循环，我们可以安全地创建和使用一个
+        logger.debug("没有运行的事件循环，创建新的")
         _local.in_run_async = True
         try:
             return _run_in_new_loop(coro, timeout)
@@ -119,21 +116,20 @@ def run_async(coro: Coroutine[Any, Any, T], timeout: Optional[float] = None) -> 
 
 
 def _run_in_new_loop(coro: Coroutine[Any, Any, T], timeout: Optional[float] = None) -> T:
-    """
-    Run coroutine in a new event loop with improved cleanup.
+    """在新的事件循环中运行协程，并进行改进的清理
 
     Args:
-        coro: Coroutine to run
-        timeout: Optional timeout in seconds
+        coro: 要运行的协程
+        timeout: 可选的超时时间(秒)
 
     Returns:
-        The result of the coroutine
+        T: 协程的结果
     """
     loop = None
     original_loop = None
 
     try:
-        # Store the current event loop for this thread, if any
+        # 存储当前线程的事件循环(如果有的话)
         try:
             original_loop = asyncio.get_event_loop()
             if original_loop and original_loop.is_closed():
@@ -141,12 +137,12 @@ def _run_in_new_loop(coro: Coroutine[Any, Any, T], timeout: Optional[float] = No
         except RuntimeError:
             original_loop = None
 
-        # Create a new event loop
+        # 创建一个新的事件循环
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
         _created_loops.add(loop)
 
-        # Wrap with timeout if specified
+        # 如果指定了超时，则用超时包装
         if timeout is not None:
 
             async def with_timeout():
@@ -156,19 +152,19 @@ def _run_in_new_loop(coro: Coroutine[Any, Any, T], timeout: Optional[float] = No
         else:
             task_to_run = coro
 
-        # Run the coroutine
+        # 运行协程
         return loop.run_until_complete(task_to_run)
 
     finally:
-        # Thorough cleanup
+        # 彻底清理
         if loop is not None:
             try:
-                # Cancel any remaining tasks
+                # 取消任何剩余的任务
                 pending = asyncio.all_tasks(loop) if hasattr(asyncio, "all_tasks") else asyncio.Task.all_tasks(loop)
                 for task in pending:
                     task.cancel()
 
-                # Run the loop briefly to handle cancellations
+                # 短暂运行循环以处理取消
                 if pending:
                     try:
                         loop.run_until_complete(
@@ -177,50 +173,49 @@ def _run_in_new_loop(coro: Coroutine[Any, Any, T], timeout: Optional[float] = No
                     except (asyncio.TimeoutError, asyncio.CancelledError):
                         pass
 
-                # Make absolutely sure the loop is stopped
+                # 绝对确保循环已停止
                 loop.call_soon(loop.stop)
                 if loop.is_running():
                     loop.run_until_complete(asyncio.sleep(0))
                     loop.stop()
 
-                # Close the loop
+                # 关闭循环
                 loop.close()
 
             except Exception as e:
-                logger.warning(f"Error during loop cleanup: {e}")
+                logger.warning(f"循环清理期间出错: {e}")
 
-        # Restore or clear the event loop for this thread
+        # 恢复或清除此线程的事件循环
         if original_loop is not None and not original_loop.is_closed():
             asyncio.set_event_loop(original_loop)
         else:
-            # IMPORTANT: Explicitly set to None to clear any loop reference
+            # 重要：显式设置为None以清除任何循环引用
             asyncio.set_event_loop(None)
 
-        logger.debug(f"Loop cleanup complete, restored: {original_loop}")
+        logger.debug(f"循环清理完成，已恢复: {original_loop}")
 
 
 def _run_in_thread(coro: Coroutine[Any, Any, T], timeout: Optional[float] = None) -> T:
-    """
-    Run coroutine in a separate thread with its own event loop.
+    """在带有自己事件循环的单独线程中运行协程
 
     Args:
-        coro: Coroutine to run
-        timeout: Optional timeout in seconds
+        coro: 要运行的协程
+        timeout: 可选的超时时间(秒)
 
     Returns:
-        The result of the coroutine
+        T: 协程的结果
 
     Raises:
-        Exception: Any exception raised by the coroutine
+        Exception: 协程抛出的任何异常
     """
     result_container: Dict[str, Any] = {"result": None, "exception": None, "loop": None}
     stop_event = threading.Event()
 
     def thread_target():
-        """Target function for the thread."""
+        """线程的目标函数"""
         loop = None
         try:
-            # Create a new event loop for this thread
+            # 为此线程创建一个新的事件循环
             loop = asyncio.new_event_loop()
             asyncio.set_event_loop(loop)
             result_container["loop"] = loop
@@ -253,10 +248,10 @@ def _run_in_thread(coro: Coroutine[Any, Any, T], timeout: Optional[float] = None
         except Exception as e:
             result_container["exception"] = e
         finally:
-            # Clean up the thread's loop
+            # 清理线程的循环
             if loop is not None:
                 try:
-                    # Cancel any remaining tasks
+                    # 取消任何剩余的任务
                     pending = asyncio.all_tasks(loop) if hasattr(asyncio, "all_tasks") else asyncio.Task.all_tasks(loop)
                     for task in pending:
                         task.cancel()
@@ -272,17 +267,17 @@ def _run_in_thread(coro: Coroutine[Any, Any, T], timeout: Optional[float] = None
                         loop.stop()
                     loop.close()
                 except Exception as e:
-                    logger.warning(f"Error closing thread loop: {e}")
+                    logger.warning(f"关闭线程循环时出错: {e}")
                 finally:
-                    # Always clear the loop for this thread
+                    # 始终清除此线程的循环
                     asyncio.set_event_loop(None)
 
-    # Create and run the thread
+    # 创建并运行线程
     thread = threading.Thread(target=thread_target, daemon=True)
     thread.start()
     thread.join(timeout=timeout)
 
-    # Check if thread is still alive (timeout case)
+    # 检查线程是否仍在运行(超时情况)
     if thread.is_alive():
         stop_event.set()
         if result_container["loop"]:
@@ -294,11 +289,11 @@ def _run_in_thread(coro: Coroutine[Any, Any, T], timeout: Optional[float] = None
         thread.join(timeout=0.5)
 
         if thread.is_alive():
-            logger.error("Thread failed to stop gracefully")
+            logger.error("线程未能优雅地停止")
 
-        raise asyncio.TimeoutError(f"Coroutine execution exceeded timeout of {timeout} seconds")
+        raise asyncio.TimeoutError(f"协程执行超出{timeout}秒的超时时间")
 
-    # Check for exceptions
+    # 检查异常
     if result_container["exception"]:
         raise result_container["exception"]
 

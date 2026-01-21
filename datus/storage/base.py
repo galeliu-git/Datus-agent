@@ -98,7 +98,7 @@ class BaseEmbeddingStore(StorageBase):
         self.batch_size = embedding_model.batch_size
         self.table_name = table_name
         self.vector_source_name = vector_source_name
-        self.vector_column_name = vector_column_name
+        self.   vector_column_name = vector_column_name
         self.on_duplicate_columns = on_duplicate_columns
         self._schema = schema
         # Delay table initialization until first use

@@ -53,6 +53,22 @@ class ChatAgenticNode(GenSQLAgenticNode):
             agent_config: Agent configuration
             tools: List of tools (will be populated in setup_tools)
         """
+        """
+        初始化一个基于 GenSQLAgenticNode 特化的 ChatAgenticNode。
+
+        该节点用于以对话为核心的交互场景，同时继承 GenSQL
+        相关能力，例如结构化推理和 SQL 生成。
+
+        Args:
+            node_id (str): 节点在 Agent 图（Graph）中的唯一标识。
+            description (str): 节点的可读描述信息，便于理解和调试。
+            node_type (str): 节点类型，必须为 "chat"。
+            input_data (Any): 聊天交互所需的输入数据。
+            agent_config (AgentConfig): 用于控制 Agent 行为的配置对象。
+            tools (list[Tool]): Agent 可使用的工具列表。
+                该列表将在 `setup_tools` 阶段统一初始化和填充。
+        """
+
         # Call parent constructor with node_name="chat"
         # This will initialize max_turns, tool attributes, plan mode attributes, and MCP servers
         super().__init__(

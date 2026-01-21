@@ -3,8 +3,8 @@
 # See http://www.apache.org/licenses/LICENSE-2.0 for details.
 
 """
-Datus-CLI REPL (Read-Eval-Print Loop) implementation.
-This module provides the main interactive shell for the CLI.
+Datus-CLI REPL (Read-Eval-Print Loop) 实现
+此模块提供CLI的主要交互式Shell功能
 """
 
 from __future__ import annotations
@@ -16,18 +16,23 @@ from enum import Enum
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple
 
+# 导入prompt_toolkit用于构建交互式命令行界面
 from prompt_toolkit import PromptSession
 from prompt_toolkit.auto_suggest import AutoSuggestFromHistory
 from prompt_toolkit.history import FileHistory
 from prompt_toolkit.key_binding import KeyBindings
 from prompt_toolkit.lexers import PygmentsLexer
 from prompt_toolkit.styles import Style, merge_styles, style_from_pygments_cls
+# 导入rich用于美化控制台输出
 from rich.console import Console
 from rich.table import Table
 
 if TYPE_CHECKING:
     from datus.agent.workflow_runner import WorkflowRunner
+
+# 导入CLI工具函数
 from datus.cli._cli_utils import prompt_input
+# 导入各种命令处理器
 from datus.cli.agent_commands import AgentCommands
 from datus.cli.autocomplete import AtReferenceCompleter, CustomPygmentsStyle, CustomSqlLexer, SubagentCompleter
 from datus.cli.bi_dashboard import BiDashboardCommands
@@ -35,59 +40,83 @@ from datus.cli.chat_commands import ChatCommands
 from datus.cli.context_commands import ContextCommands
 from datus.cli.metadata_commands import MetadataCommands
 from datus.cli.sub_agent_commands import SubAgentCommands
+# 导入配置管理
 from datus.configuration.agent_config_loader import configuration_manager, load_agent_config
+# 导入动作历史记录相关
 from datus.schemas.action_history import ActionHistory, ActionHistoryManager, ActionRole, ActionStatus
 from datus.schemas.node_models import SQLContext
+# 导入数据库连接器
 from datus.tools.db_tools import BaseSqlConnector
 from datus.tools.db_tools.db_manager import db_manager_instance
+# 导入常量
 from datus.utils.constants import SYS_SUB_AGENTS, DBType, SQLType
+# 导入异常处理设置
 from datus.utils.exceptions import setup_exception_handler
+# 导入日志记录器
 from datus.utils.loggings import get_logger
+# 导入SQL类型解析工具
 from datus.utils.sql_utils import parse_sql_type
 
+# 获取当前模块的日志记录器
 logger = get_logger(__name__)
 
 
 class CommandType(Enum):
-    """Type of command entered by the user."""
+    """用户输入的命令类型枚举
 
-    SQL = "sql"  # Regular SQL
-    TOOL = "tool"  # !command (tool/workflow)
-    CONTEXT = "context"  # @command (context explorer)
-    CHAT = "chat"  # /command (chat)
-    INTERNAL = "internal"  # .command (CLI control)
-    EXIT = "exit"  # exit/quit command
+    定义了CLI支持的所有命令类型，用于命令解析和执行
+    """
+
+    SQL = "sql"  # 常规SQL语句
+    TOOL = "tool"  # !命令 (工具/工作流)
+    CONTEXT = "context"  # @命令 (上下文浏览器)
+    CHAT = "chat"  # /命令 (聊天)
+    INTERNAL = "internal"  # .命令 (CLI控制)
+    EXIT = "exit"  # 退出命令 (exit/quit)
 
 
 class DatusCLI:
     """Main REPL for the Datus CLI application."""
 
     def __init__(self, args):
-        """Initialize the CLI with the given arguments."""
+        """使用给定的参数初始化CLI
+
+        Args:
+            args: 从命令行解析得到的参数对象
+        """
         self.args = args
+        # 创建控制台输出对象，用于美化输出
         self.console = Console(log_path=False)
+        # 控制台列宽设置，用于智能表格显示
         self.console_column_width = 16
+        # 当前选中的目录路径
         self.selected_catalog_path = ""
+        # 是否为Streamlit模式(用于Web界面)
         self.streamlit_mode = False
+        # 当前选中的目录数据
         self.selected_catalog_data = {}
 
+        # 设置统一的异常处理器
         setup_exception_handler(
             console_logger=self.console.print, prefix_wrap_func=lambda x: f"[bold red]{x}[/bold red]"
         )
+        # 数据库连接器，类型注解
         self.db_connector: BaseSqlConnector
 
-        self.agent = None
-        self.agent_initializing = False
-        self.agent_ready = False
-        self._workflow_runner: WorkflowRunner | None = None
+        # AI智能体相关状态
+        self.agent = None  # 智能体实例
+        self.agent_initializing = False  # 是否正在初始化
+        self.agent_ready = False  # 是否已准备就绪
+        self._workflow_runner: WorkflowRunner | None = None  # 工作流运行器
 
-        # Plan mode support
+        # 计划模式支持 (Plan Mode)
         self.plan_mode_active = False
 
-        # Load agent config first to initialize path_manager with correct home directory
+        # 首先加载智能体配置以初始化路径管理器
         self.agent_config = load_agent_config(**vars(self.args))
         self.configuration_manager = configuration_manager()
 
+        # 设置历史文件路径
         if args.history_file:
             history_file = Path(args.history_file).expanduser().resolve()
         else:
@@ -96,17 +125,19 @@ class DatusCLI:
             history_file = get_path_manager().history_file_path()
         history_file.parent.mkdir(parents=True, exist_ok=True)
         self.history = FileHistory(str(history_file))
+        # 自动补全器
         self.at_completer: AtReferenceCompleter
+        # 初始化提示会话
         self._init_prompt_session()
 
-        # Last executed SQL and result
+        # 最后执行的SQL语句和结果
         self.last_sql = None
         self.last_result = None
 
-        # Action history manager for tracking all CLI operations
+        # 动作历史记录管理器，用于跟踪所有CLI操作
         self.actions = ActionHistoryManager()
 
-        # Initialize CLI context for state management
+        # 初始化CLI上下文用于状态管理
         from datus.cli.cli_context import CliContext
 
         self.cli_context = CliContext(
@@ -114,42 +145,37 @@ class DatusCLI:
             current_catalog=getattr(args, "catalog", ""),
             current_schema=getattr(args, "schema", ""),
         )
+        # 数据库管理器实例
         self.db_manager = db_manager_instance(self.agent_config.namespaces)
 
-        # Initialize available subagents from agentic_nodes (excluding 'chat') and include built-in subagents
+        # 从agentic_nodes初始化可用的子智能体(排除'chat')，并包含内置子智能体
         self.available_subagents = set(SYS_SUB_AGENTS)
         if hasattr(self.agent_config, "agentic_nodes") and self.agent_config.agentic_nodes:
             self.available_subagents.update(name for name in self.agent_config.agentic_nodes.keys() if name != "chat")
 
-        # Initialize command handlers after cli_context is created
-        self.agent_commands = AgentCommands(self, self.cli_context)
-        self.chat_commands = ChatCommands(self)
-        self.context_commands = ContextCommands(self)
-        self.metadata_commands = MetadataCommands(self)
-        self.sub_agent_commands = SubAgentCommands(self)
-        self.bi_dashboard_commands = BiDashboardCommands(self)
+        # 在cli_context创建后初始化命令处理器
+        self.agent_commands = AgentCommands(self, self.cli_context)  # 智能体命令处理器
+        self.chat_commands = ChatCommands(self)  # 聊天命令处理器
+        self.context_commands = ContextCommands(self)  # 上下文命令处理器
+        self.metadata_commands = MetadataCommands(self)  # 元数据命令处理器
+        self.sub_agent_commands = SubAgentCommands(self)  # 子智能体命令处理器
+        self.bi_dashboard_commands = BiDashboardCommands(self)  # BI仪表板命令处理器
 
-        # Dictionary of available commands - created after handlers are initialized
+        # 可用命令字典 - 在处理器初始化后创建
         self.commands = {
-            # "!run": self.agent_commands.cmd_darun_screen,
+            # 工具命令 (!前缀)
             "!sl": self.agent_commands.cmd_schema_linking,
             "!schema_linking": self.agent_commands.cmd_schema_linking,
             "!sm": self.agent_commands.cmd_search_metrics,
             "!search_metrics": self.agent_commands.cmd_search_metrics,
             "!sq": self.agent_commands.cmd_search_reference_sql,
             "!search_sql": self.agent_commands.cmd_search_reference_sql,
-            # "!doc_search": self.agent_commands.cmd_doc_search,
-            # "!gen": self.agent_commands.cmd_gen,
-            # "!fix": self.agent_commands.cmd_fix,
             "!save": self.agent_commands.cmd_save,
             "!bash": self._cmd_bash,
-            # to be deprecated when sub agent is read
-            # "!reason": self.agent_commands.cmd_reason_stream,
-            # "!compare": self.agent_commands.cmd_compare_stream,
-            # catalog commands
+            # 上下文命令 (@前缀)
             "@catalog": self.context_commands.cmd_catalog,
             "@subject": self.context_commands.cmd_subject,
-            # interal commands
+            # 内部命令 (.前缀)
             ".clear": self.chat_commands.cmd_clear_chat,
             ".chat_info": self.chat_commands.cmd_chat_info,
             ".compact": self.chat_commands.cmd_compact,
@@ -170,100 +196,110 @@ class DatusCLI:
             ".quit": self._cmd_exit,
         }
 
-        # Start agent initialization in background
+        # 在后台启动智能体初始化
         self._async_init_agent()
+        # 初始化数据库连接
         self._init_connection()
 
     @property
     def workflow_runner(self) -> WorkflowRunner:
+        """工作流运行器属性
+
+        Returns:
+            WorkflowRunner: 智能体的工作流运行器实例
+
+        Raises:
+            RuntimeError: 当智能体未初始化时抛出
+        """
         if not self.check_agent_available():
-            raise RuntimeError("Agent not initialized. Cannot create workflow runner.")
+            raise RuntimeError("智能体未初始化，无法创建工作流运行器。")
         if not self._workflow_runner:
             self._workflow_runner = self.agent.create_workflow_runner()
         return self._workflow_runner
 
     def _create_custom_key_bindings(self):
-        """Create custom key bindings for the REPL."""
+        """为REPL创建自定义键绑定"""
         kb = KeyBindings()
 
         @kb.add("tab")
         def _(event):
-            """The Tab key triggers completion only, not navigation."""
+            """Tab键触发自动补全功能，不用于导航"""
             buffer = event.app.current_buffer
 
             if buffer.complete_state:
-                # If the menu is already open, close it.
+                # 如果菜单已经打开，则关闭它
                 buffer.complete_next()
             else:
-                # If the menu is incomplete, trigger completion.
+                # 如果菜单未完成，则触发补全
                 buffer.start_completion(select_first=False)
 
         @kb.add("s-tab")
         def _(event):
-            """Shift+Tab: Toggle Plan Mode on/off"""
+            """Shift+Tab: 切换计划模式的开关"""
             self.plan_mode_active = not self.plan_mode_active
 
-            # Clear current input buffer and force exit current prompt
+            # 清除当前输入缓冲区并强制退出当前提示
             buffer = event.app.current_buffer
             buffer.reset()
 
-            # Force the prompt to exit and restart with new prefix
-            # This will cause the main loop to regenerate the prompt
+            # 强制提示符退出并重新启动新前缀
+            # 这将导致主循环重新生成提示符
             buffer.validation_state = None
             event.app.exit()
 
-            # Show mode change message
+            # 显示模式变更消息
             if self.plan_mode_active:
-                self.console.print("[bold green]Plan Mode Activated![/]")
-                self.console.print("[dim]Enter your planning task and press Enter to generate plan[/]")
+                self.console.print("[bold green]计划模式已激活![/]")
+                self.console.print("[dim]输入您的规划任务并按Enter键生成计划[/]")
             else:
-                self.console.print("[yellow]Plan Mode Deactivated[/]")
+                self.console.print("[yellow]计划模式已停用[/]")
 
         @kb.add("enter")
         def _(event):
             """
-            Enter key:
-                if completion menu is open, apply the highlighted item (if any) or close the menu; otherwise execute.
+            Enter键:
+                如果补全菜单打开，应用高亮项目(如果有)或关闭菜单；否则执行
             """
             buffer = event.app.current_buffer
 
             if buffer.complete_state:
-                # If there is an actively highlighted completion, apply it.
+                # 如果有当前高亮的补全项，则应用它
                 cs = buffer.complete_state
                 comp = cs.current_completion
                 if comp is not None:
                     buffer.apply_completion(comp)
                 else:
-                    # No item highlighted (e.g., select_first=False). Close the menu and proceed as normal Enter.
+                    # 没有高亮项目(例如select_first=False)。关闭菜单并按正常Enter处理
                     buffer.cancel_completion()
                     buffer.validate_and_handle()
                 return
 
-            # Performs normal Enter behavior when there is no completion menu.
+            # 当没有补全菜单时执行正常的Enter行为
             buffer.validate_and_handle()
 
         @kb.add("c-o")
         def _(event):
-            """Show details for display_actions"""
+            """显示操作详情"""
             event.app.exit(result="_open_chat_sql_details")
 
         return kb
 
     def _get_prompt_text(self):
-        """Get the current prompt text based on mode"""
+        """根据模式获取当前提示文本"""
         if self.plan_mode_active:
-            return "[PLAN MODE] Datus> "
+            return "[计划模式] Datus> "
         else:
             return "Datus> "
 
     def _update_prompt(self):
-        """Update the prompt display (called when mode changes)"""
-        # The prompt will be updated on the next iteration of the main loop
-        # This is a limitation of prompt_toolkit's PromptSession
-        # For immediate feedback, we could force a redraw, but it's complex
+        """更新提示显示(在模式变更时调用)"""
+        # 提示符将在主循环的下一次迭代中更新
+        # 这是prompt_toolkit的PromptSession的限制
+        # 要获得即时反馈，我们可以强制重绘，但会很复杂
 
     def _init_prompt_session(self):
-        # Setup prompt session with custom key bindings
+        """初始化提示会话并设置自定义键绑定"""
+        # 使用自定义键绑定设置提示会话
         self.session = PromptSession(
             history=self.history,
             auto_suggest=AutoSuggestFromHistory(),
@@ -286,36 +322,36 @@ class DatusCLI:
             complete_while_typing=True,
         )
 
-    # Create combined completer
+    # 创建组合补全器
     def create_combined_completer(self):
-        """Create combined completer: SubagentCompleter + AtReferenceCompleter + SqlCompleter"""
+        """创建组合补全器: SubagentCompleter + AtReferenceCompleter + SqlCompleter"""
         from datus.cli.autocomplete import SQLCompleter
 
         sql_completer = SQLCompleter()
-        self.at_completer = AtReferenceCompleter(self.agent_config)  # Router completer
-        subagent_completer = SubagentCompleter(self.agent_config)  # Subagent completer
+        self.at_completer = AtReferenceCompleter(self.agent_config)  # 路由器补全器
+        subagent_completer = SubagentCompleter(self.agent_config)  # 子智能体补全器
 
-        # Use merge_completers to combine completers
+        # 使用merge_completers来组合补全器
         from prompt_toolkit.completion import merge_completers
 
         return merge_completers(
             [
-                subagent_completer,  # Subagent completer (highest priority)
-                self.at_completer,  # @ reference completer
-                sql_completer,  # SQL keyword completer (lowest priority)
+                subagent_completer,  # 子智能体补全器(最高优先级)
+                self.at_completer,  # @引用补全器
+                sql_completer,  # SQL关键字补全器(最低优先级)
             ]
         )
 
     def run(self):
-        """Run the REPL loop."""
+        """运行REPL主循环"""
         self._print_welcome()
 
         while True:
             try:
-                # Get dynamic prompt text
+                # 获取动态提示文本
                 prompt_text = self._get_prompt_text()
 
-                # Get user input
+                # 获取用户输入
                 user_input_raw = self.session.prompt(
                     message=prompt_text,
                 )
@@ -333,12 +369,12 @@ class DatusCLI:
                 if not user_input:
                     continue
 
-                # Parse and execute the command
+                # 解析并执行命令
                 cmd_type, cmd, args = self._parse_command(user_input)
                 if cmd_type == CommandType.EXIT:
                     return True
 
-                # Execute the command based on type
+                # 根据类型执行命令
                 if cmd_type == CommandType.SQL:
                     self._execute_sql(user_input)
                 elif cmd_type == CommandType.TOOL:
@@ -355,34 +391,34 @@ class DatusCLI:
             except EOFError:
                 return 0
             except Exception as e:
-                # Check if this is an exit event (for plan mode toggle)
+                # 检查这是否是退出事件(用于计划模式切换)
                 if "exit" in str(e).lower() and "app" in str(e).lower():
-                    # This is expected from shift+tab toggle, continue loop
+                    # 这是Shift+Tab切换的预期行为，继续循环
                     continue
-                logger.error(f"Error: {str(e)}")
-                self.console.print(f"[bold red]Error:[/] {str(e)}")
+                logger.error(f"错误: {str(e)}")
+                self.console.print(f"[bold red]错误:[/] {str(e)}")
 
     def _async_init_agent(self):
-        """Initialize the agent asynchronously in a background thread."""
+        """在后台线程中异步初始化智能体"""
         if self.agent_initializing or self.agent_ready:
             return
 
-        # Skip background initialization in Streamlit mode to avoid vector DB conflicts
+        # 在Streamlit模式下跳过后台初始化以避免向量数据库冲突
         if hasattr(self, "streamlit_mode") and self.streamlit_mode:
             return
 
         self.agent_initializing = True
-        self.console.print("[dim]Initializing AI capabilities in background...[/]")
+        self.console.print("[dim]在后台初始化AI功能...[/]")
 
-        # Start initialization in a separate thread
+        # 在单独的线程中启动初始化
         thread = threading.Thread(target=self._background_init_agent)
-        thread.daemon = True  # Daemon thread will exit when main thread exits
+        thread.daemon = True  # 守护线程会在主线程退出时退出
         thread.start()
 
     def _background_init_agent(self):
-        """Background thread function to initialize the agent."""
+        """在后台线程中初始化智能体的函数"""
         try:
-            # Create a mock args object based on CLI args
+            # 基于CLI参数创建模拟args对象
             from argparse import Namespace
 
             agent_args = Namespace(
@@ -406,34 +442,39 @@ class DatusCLI:
             self.agent_commands.update_agent_reference()
             self._pre_load_storage()
             self._workflow_runner = self.agent.create_workflow_runner()
-            # self.console.print("[dim]Agent initialized successfully in background[/]")
+            # self.console.print("[dim]智能体在后台成功初始化[/]")
         except Exception as e:
-            self.console.print(f"[bold red]Error:[/]Failed to initialize agent in background: {str(e)}")
-            logger.error(f"[bold red]Failed to initialize agent in background: {e}")
+            self.console.print(f"[bold red]错误:[/]在后台初始化智能体失败: {str(e)}")
+            logger.error(f"[bold red]在后台初始化智能体失败: {e}")
             self.agent_initializing = False
             self.agent = None
 
     def _pre_load_storage(self):
-        """Preload rag to avoid unnecessary printing"""
+        """预加载向量数据库以避免不必要的打印"""
         if self.at_completer:
             self.at_completer.reload_data()
 
     def check_agent_available(self):
-        """Check if agent is available, and inform the user if it's still initializing."""
+        """检查智能体是否可用，如果仍在初始化则通知用户
+
+        Returns:
+            bool: 智能体是否可用
+        """
         if self.agent_ready and self.agent:
             return True
         elif self.agent_initializing:
             self.console.print(
-                "[yellow]AI features are still initializing in the background. Please try again shortly.[/]"
+                "[yellow]AI功能仍在后台初始化中。请稍后再试。[/]"
             )
             return False
         else:
-            self.console.print("[bold red]Error:[/] AI features are not available. Agent initialization failed.")
+            self.console.print("[bold red]错误:[/] AI功能不可用。智能体初始化失败。")
             return False
 
     def _cmd_list_namespaces(self):
+        """列出所有可用的命名空间"""
         table = Table(show_header=True, header_style="bold green")
-        table.add_column("Namespace")
+        table.add_column("命名空间")
         for namespace in self.agent_config.namespaces.keys():
             if self.agent_config.current_namespace == namespace:
                 table.add_row(f"[bold green]{namespace}[/]")
@@ -443,6 +484,7 @@ class DatusCLI:
         return
 
     def _cmd_mcp(self, args):
+        """处理MCP(模型配置协议)相关命令"""
         from datus.cli.mcp_commands import MCPCommands
 
         MCPCommands(self).cmd_mcp(args)
@@ -452,66 +494,65 @@ class DatusCLI:
         data: List[Dict[str, Any]],
         columns: Optional[List[str]] = None,
     ) -> None:
-        """
-        Smart table display that handles wide tables by limiting columns and truncating content.
+        """智能表格显示，通过限制列数和截断内容来处理宽表格
 
         Args:
-            data: List of dictionaries representing table rows
-            columns: The columns to display, if not provided, all columns will be displayed
+            data: 表示表格行的字典列表
+            columns: 要显示的列，如果不提供，则显示所有列
         """
         if not data:
-            self.console.print("[yellow]No data to display[/]")
+            self.console.print("[yellow]没有数据显示[/]")
             return
 
         if columns:
             all_columns_list = columns
         else:
-            # Get all unique column names
+            # 获取所有唯一的列名
             all_columns_list = []
             for row in data:
                 all_columns_list.extend(list(row.keys()))
-        # Calculate the maximum number of columns based on the terminal width.
+        # 根据终端宽度计算最大列数
         max_columns = max(4, self.console.width // self.console_column_width)
 
-        # Smart column selection: show front + back + ellipsis based on terminal width
+        # 智能列选择：根据终端宽度显示前端+后端+省略号
         if len(all_columns_list) > max_columns:
             show_back = max_columns // 2
-            show_front = max_columns - show_back  # -1 for ellipsis
+            show_front = max_columns - show_back  # -1为省略号留出空间
 
-            # Select columns to display
+            # 选择要显示的列
             front_columns = all_columns_list[:show_front]
             back_columns = all_columns_list[-show_back:] if show_back > 0 else []
             display_columns = front_columns + ["..."] + back_columns
         else:
             display_columns = all_columns_list
 
-        # Calculate dynamic column width based on number of columns
-        # With folding enabled, we can use narrower columns and fit more on screen
+        # 根据列数计算动态列宽
+        # 启用折叠后，我们可以使用更窄的列并在屏幕上容纳更多内容
         num_display_columns = len([col for col in display_columns if col != "..."])
         if num_display_columns <= 2:
-            # For 1-2 columns, use moderate width (content will fold if needed)
+            # 对于1-2列，使用中等宽度(内容会在需要时折叠)
             dynamic_column_width = max(25, self.console.width // max(2, num_display_columns) - 4)
         elif num_display_columns <= 4:
-            # For 3-4 columns, use compact width
+            # 对于3-4列，使用紧凑宽度
             dynamic_column_width = max(20, self.console.width // num_display_columns - 3)
         elif num_display_columns <= 8:
-            # For 5-8 columns, use narrow width (content will fold if needed)
+            # 对于5-8列，使用窄宽度(内容会在需要时折叠)
             dynamic_column_width = max(18, self.console.width // num_display_columns - 2)
         else:
-            # For many columns, use the default compact width
+            # 对于很多列，使用默认紧凑宽度
             dynamic_column_width = self.console_column_width
 
         table = Table(show_header=True, header_style="bold green")
 
-        # Add columns with width constraints and folding for overflow
+        # 添加具有宽度约束和溢出折叠的列
         for col in display_columns:
             if col == "...":
                 table.add_column(col, width=5, justify="center")
             else:
-                # Use dynamic column width with folding enabled for long content
+                # 使用动态列宽，并为长内容启用折叠
                 table.add_column(col, width=dynamic_column_width, overflow="fold", no_wrap=False)
 
-        # Add rows with truncated content
+        # 添加具有截断内容的行
         for row in data:
             row_values: List[Any] = []
             for col in display_columns:

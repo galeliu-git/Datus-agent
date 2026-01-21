@@ -64,6 +64,24 @@ class GenSQLAgenticNode(AgenticNode):
             tools: List of tools (will be populated in setup_tools)
             node_name: Name of the node configuration in agent.yml (e.g., "gensql", "gen_sql")
         """
+        """
+        初始化一个可在工作流中使用的 GenSQLAgenticNode 节点。
+
+        该节点用于 SQL 生成类任务，能够在 Agent 工作流中
+        作为标准节点参与调度与执行。
+
+        Args:
+            node_id (str): 节点在 Agent 工作流 / Graph 中的唯一标识。
+            description (str): 节点的可读描述信息，便于理解和调试。
+            node_type (str): 节点类型，必须为 "gensql"。
+            input_data (Any): SQL 生成相关的输入数据。
+            agent_config (AgentConfig): 用于控制 Agent 行为的配置对象。
+            tools (list[Tool]): Agent 可使用的工具列表。
+                该列表将在 `setup_tools` 阶段统一初始化和填充。
+            node_name (str): 在 agent.yml 中定义的节点配置名称，
+                例如 "gensql"、"gen_sql"。
+        """
+
         # Determine node name from node_type if not provided
         self.configured_node_name = node_name
 

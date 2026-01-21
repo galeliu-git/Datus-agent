@@ -3,14 +3,14 @@
 # See http://www.apache.org/licenses/LICENSE-2.0 for details.
 
 """
-Streamlit Chatbot for Datus Agent
+Datus智能体的Streamlit聊天机器人
 
-This module provides a web-based chatbot interface using Streamlit,
-maximizing reuse of existing Datus CLI components including:
-- DatusCLI for real CLI functionality
-- ChatCommands for chat processing
-- ActionHistoryDisplay for execution visualization
-- CollapsibleActionContentGenerator for detail views
+此模块提供基于Streamlit的Web聊天机器人界面，
+最大化重用现有的Datus CLI组件，包括：
+- DatusCLI：真实的CLI功能
+- ChatCommands：聊天处理
+- ActionHistoryDisplay：执行可视化
+- CollapsibleActionContentGenerator：详情视图
 """
 
 import csv
@@ -26,7 +26,7 @@ import pandas as pd
 import streamlit as st
 import structlog
 
-# Import Datus components to reuse
+# 导入Datus组件以重用
 from datus.cli.repl import DatusCLI
 from datus.cli.web.chat_executor import ChatExecutor
 from datus.cli.web.config_manager import ConfigManager
@@ -37,56 +37,65 @@ from datus.schemas.action_history import ActionHistory
 from datus.schemas.node_models import ExecuteSQLResult
 from datus.utils.loggings import configure_logging, setup_web_chatbot_logging
 
-# Logging setup shared with CLI entry point
+# 与CLI入口点共享的日志设置
 logger = structlog.get_logger("web_chatbot")
 _LOGGING_INITIALIZED = False
 
 
 def initialize_logging(debug: bool = False, log_dir: str = None) -> None:
-    """Configure logging for the Streamlit subprocess to match CLI behavior."""
+    """为Streamlit子进程配置日志以匹配CLI行为
+
+    Args:
+        debug: 是否启用调试模式
+        log_dir: 日志目录路径，如果未指定则使用路径管理器默认值
+    """
 
     global _LOGGING_INITIALIZED, logger
 
     if _LOGGING_INITIALIZED:
         return
 
-    # Use path manager default if not specified
+    # 如果未指定，使用路径管理器默认值
     if log_dir is None:
         from datus.utils.path_manager import get_path_manager
 
         log_dir = str(get_path_manager().logs_dir)
 
-    configure_logging(debug=debug, log_dir=log_dir, console_output=False)
+    configure_logging(debug=debug, log_dir=log_dir, console_output=True)
     logger = setup_web_chatbot_logging(debug=debug, log_dir=log_dir)
     _LOGGING_INITIALIZED = True
 
 
 class StreamlitChatbot:
-    """Main Streamlit Chatbot class that wraps Datus CLI components"""
+    """主要的Streamlit聊天机器人类，包装Datus CLI组件
+
+    负责协调Web界面的各个组件，包括会话管理、聊天执行、
+    配置管理和UI组件
+    """
 
     def __init__(self):
-        self.session_manager = SessionManager()
-        self.session_loader = SessionLoader()
-        self.chat_executor = ChatExecutor()
-        self.config_manager = ConfigManager()
+        self.session_manager = SessionManager()  # 会话管理器
+        self.session_loader = SessionLoader()  # 会话加载器
+        self.chat_executor = ChatExecutor()  # 聊天执行器
+        self.config_manager = ConfigManager()  # 配置管理器
 
-        # Get server host and port from Streamlit config with fallback
+        # 从Streamlit配置获取服务器主机和端口，并提供回退
         self.server_host = st.get_option("server.address") or "localhost"
         self.server_port = st.get_option("server.port") or 8501
 
-        # Initialize UI components
+        # 初始化UI组件
         self.ui = UIComponents(self.server_host, self.server_port)
 
-        # Initialize session state with defaults
+        # 使用默认值初始化会话状态
         defaults = {
-            "messages": [],
-            "current_actions": [],
-            "chat_session_initialized": False,
-            "cli_instance": None,
-            "current_chat_id": None,
-            "subagent_name": None,
-            "view_session_id": None,
-            "session_readonly_mode": False,
+            "messages": [],  # 聊天消息列表
+            "current_actions": [],  # 当前操作列表
+            "chat_session_initialized": False,  # 聊天会话是否已初始化
+            "cli_instance": None,  # CLI实例
+            "current_chat_id": None,  # 当前聊天ID
+            "subagent_name": None,  # 子智能体名称
+            "view_session_id": None,  # 查看的会话ID
+            "session_readonly_mode": False,  # 会话只读模式
         }
         for key, value in defaults.items():
             if key not in st.session_state:
@@ -94,17 +103,16 @@ class StreamlitChatbot:
 
     @staticmethod
     def sanitize_csv_field(value: Optional[str]) -> Optional[str]:
-        """
-        Sanitize a CSV field to prevent formula injection.
+        """清理CSV字段以防止公式注入
 
-        If the field starts with =, +, -, or @, prefix it with a single quote
-        to neutralize Excel formula injection attacks.
+        如果字段以=、+、-或@开头，则在其前添加单引号
+        来中和Excel公式注入攻击。
 
         Args:
-            value: The field value to sanitize
+            value: 要清理的字段值
 
         Returns:
-            Sanitized value safe for CSV export
+            安全用于CSV导出的清理值
         """
         if value is None:
             return None
@@ -112,7 +120,7 @@ class StreamlitChatbot:
         if not isinstance(value, str):
             value = str(value)
 
-        # Check if first character is a formula trigger
+        # 检查第一个字符是否为公式触发器
         if value and value[0] in "=+-@":
             return "'" + value
 
@@ -120,33 +128,43 @@ class StreamlitChatbot:
 
     @property
     def cli(self) -> DatusCLI:
-        """Get CLI instance from session state"""
+        """从会话状态获取CLI实例"""
         return st.session_state.cli_instance
 
     @cli.setter
     def cli(self, value):
-        """Set CLI instance in session state"""
+        """在会话状态中设置CLI实例"""
         st.session_state.cli_instance = value
 
     @property
     def current_subagent(self) -> Optional[str]:
-        """Get current subagent from URL query parameters"""
+        """从URL查询参数获取当前子智能体"""
         return st.query_params.get("subagent")
 
     @property
     def should_hide_sidebar(self) -> bool:
-        """Check if sidebar should be hidden (embed mode)"""
-        # Return from session_state (persists across reruns)
-        # Query params are read in run() method after set_page_config
+        """检查是否应隐藏侧边栏(嵌入模式)"""
+        # 从session_state返回(在重新运行间持久化)
+        # 查询参数在set_page_config后由run()方法读取
         return st.session_state.get("embed_mode", False)
 
     def setup_config(
         self, config_path: str = "conf/agent.yml", namespace: str = None, catalog: str = "", database: str = ""
     ) -> bool:
-        """Delegate to ConfigManager for agent configuration setup."""
-        # Check if already initialized to prevent repeated initialization
+        """委托给ConfigManager进行智能体配置设置
+
+        Args:
+            config_path: 配置文件路径
+            namespace: 命名空间
+            catalog: 目录
+            database: 数据库名
+
+        Returns:
+            bool: 配置是否设置成功
+        """
+        # 检查是否已初始化以防止重复初始化
         if self.cli is not None:
-            logger.info("CLI already initialized, skipping...")
+            logger.info("CLI已初始化，跳过...")
             return True
 
         try:
@@ -155,15 +173,19 @@ class StreamlitChatbot:
             self.ui.agent_config = self.cli.agent_config
             return True
         except Exception as e:
-            st.error(f"Failed to load configuration: {e}")
-            logger.error(f"Configuration loading error: {e}")
+            st.error(f"加载配置失败: {e}")
+            logger.error(f"配置加载错误: {e}")
             return False
 
     def render_sidebar(self) -> Dict[str, Any]:
-        """Render sidebar with configuration information"""
-        # Skip sidebar rendering in embed mode, but keep config loading
+        """渲染包含配置信息的侧边栏
+
+        Returns:
+            Dict[str, Any]: 配置加载状态的字典
+        """
+        # 在嵌入模式下跳过侧边栏渲染，但仍保持配置加载
         if self.should_hide_sidebar:
-            # Still need to initialize config if not done
+            # 如果尚未完成，仍需要初始化配置
             if not self.cli and not st.session_state.get("initialization_attempted", False):
                 startup_config = st.session_state.get("startup_config_path", "conf/agent.yml")
                 startup_namespace = st.session_state.get("startup_namespace", None)
@@ -179,7 +201,7 @@ class StreamlitChatbot:
                 else:
                     st.session_state.initialization_attempted = False
 
-            # Update subagent name from URL
+            # 从URL更新子智能体名称
             if self.cli:
                 st.session_state.subagent_name = self.current_subagent
 

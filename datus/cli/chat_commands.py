@@ -96,25 +96,35 @@ class ChatCommands:
                 self.console.print(f"[bold red]Compact error:[/] {str(e)}")
 
     def _create_new_node(self, subagent_name: str = None):
-        """Create new node based on subagent_name and configuration.
+        """根据subagent_name和配置创建新的节点。
 
-        Node class selection priority:
-        1. Hardcoded special cases (gen_semantic_model, gen_metrics, gen_sql_summary)
-        2. node_class field from configuration
-        3. Default to gensql
+        节点类选择优先级：
+        1. 硬编码的特殊情况 (gen_semantic_model, gen_metrics, gen_sql_summary)
+        2. 配置中的node_class字段
+        3. 默认使用gensql
+
+        Args:
+            subagent_name: 子代理名称，用于确定创建哪种类型的节点
+
+        Returns:
+            创建的节点实例（ChatAgenticNode或特定子代理节点）
         """
+        # 如果指定了subagent_name，根据名称创建对应的子代理节点
         if subagent_name:
-            # Get node configuration
+            # 获取节点配置信息
             node_config = {}
             if hasattr(self.cli.agent_config, "agentic_nodes") and self.cli.agent_config.agentic_nodes:
+                # 从配置中获取指定subagent的配置
                 node_config = self.cli.agent_config.agentic_nodes.get(subagent_name, {})
+                # 如果配置是Pydantic模型，转换为字典
                 if hasattr(node_config, "model_dump"):
                     node_config = node_config.model_dump()
 
-            # Get node_class from config, default to None
+            # 从配置中获取node_class类型，默认为None
             node_class_type = node_config.get("node_class") if isinstance(node_config, dict) else None
 
-            # Hardcoded special cases (existing nodes with special constructors)
+            # 硬编码的特殊情况 - 现有节点具有特殊构造函数
+            # 1. 语义模型生成节点
             if subagent_name == "gen_semantic_model":
                 from datus.agent.node.gen_semantic_model_agentic_node import GenSemanticModelAgenticNode
 
@@ -123,6 +133,7 @@ class ChatCommands:
                     agent_config=self.cli.agent_config,
                     execution_mode="interactive",
                 )
+            # 2. 指标生成节点
             elif subagent_name == "gen_metrics":
                 from datus.agent.node.gen_metrics_agentic_node import GenMetricsAgenticNode
 
@@ -131,6 +142,7 @@ class ChatCommands:
                     agent_config=self.cli.agent_config,
                     execution_mode="interactive",
                 )
+            # 3. SQL摘要节点
             elif subagent_name == "gen_sql_summary":
                 from datus.agent.node.sql_summary_agentic_node import SqlSummaryAgenticNode
 
@@ -140,8 +152,9 @@ class ChatCommands:
                     agent_config=self.cli.agent_config,
                     execution_mode="interactive",
                 )
-            # Config-based node class for custom subagents
-            # node_class only has two types: "gen_sql" (default) and "gen_report"
+            # 基于配置的节点类 - 用于自定义子代理
+            # node_class只有两种类型："gen_sql"（默认）和"gen_report"
+            # 4. 报告生成节点
             elif node_class_type == "gen_report":
                 from datus.agent.node.gen_report_agentic_node import GenReportAgenticNode
 
@@ -155,7 +168,7 @@ class ChatCommands:
                     tools=None,
                     node_name=subagent_name,
                 )
-            # Use GenExtKnowledgeAgenticNode for gen_ext_knowledge
+            # 5. 外部知识生成节点
             elif subagent_name == "gen_ext_knowledge":
                 from datus.agent.node.gen_ext_knowledge_agentic_node import GenExtKnowledgeAgenticNode
 
@@ -165,8 +178,8 @@ class ChatCommands:
                     agent_config=self.cli.agent_config,
                     execution_mode="interactive",
                 )
+            # 默认情况：创建通用SQL生成节点
             else:
-                # Default: Create GenSQLAgenticNode
                 from datus.agent.node.gen_sql_agentic_node import GenSQLAgenticNode
 
                 self.console.print(f"[dim]Creating new {subagent_name} session...[/]")
@@ -179,8 +192,9 @@ class ChatCommands:
                     tools=None,
                     node_name=subagent_name,
                 )
+        # 如果没有指定subagent_name，创建默认的聊天节点
         else:
-            # Create ChatAgenticNode for default chat
+            # 为默认聊天创建ChatAgenticNode
             self.console.print("[dim]Creating new chat session...[/]")
             return ChatAgenticNode(
                 node_id="chat_cli",
@@ -194,7 +208,26 @@ class ChatCommands:
     def create_node_input(
         self, user_message: str, current_node, at_tables, at_metrics, at_sqls, plan_mode: bool = False
     ):
-        """Create node input based on node type - shared logic for CLI and web"""
+        """根据节点类型创建节点输入 - CLI和Web的共享逻辑。
+
+        此方法根据当前节点类型创建相应的输入对象，包含用户消息、数据库上下文
+        和@引用信息等。每个节点类型都有其专用的输入模型。
+
+        Args:
+            user_message: 用户输入的消息内容
+            current_node: 当前的节点实例，用于判断需要创建哪种类型的输入
+            at_tables: 通过@table引用的表信息列表
+            at_metrics: 通过@metric引用的指标信息列表
+            at_sqls: 通过@sql引用的SQL信息列表
+            plan_mode: 是否处于计划模式（默认为False）
+
+        Returns:
+            tuple: (输入对象, 节点类型字符串)
+                - 输入对象：对应节点类型的输入模型实例
+                - 节点类型字符串：用于标识节点类型
+
+        """
+        # 导入所有可能的节点类型
         from datus.agent.node.gen_ext_knowledge_agentic_node import GenExtKnowledgeAgenticNode
         from datus.agent.node.gen_metrics_agentic_node import GenMetricsAgenticNode
         from datus.agent.node.gen_report_agentic_node import GenReportAgenticNode
@@ -202,34 +235,42 @@ class ChatCommands:
         from datus.agent.node.gen_sql_agentic_node import GenSQLAgenticNode
         from datus.agent.node.sql_summary_agentic_node import SqlSummaryAgenticNode
 
+        # 获取当前数据库上下文信息（目录、数据库、模式）
+        current_catalog = self.cli.cli_context.current_catalog if self.cli.cli_context.current_catalog else None
+        current_database = self.cli.cli_context.current_db_name if self.cli.cli_context.current_db_name else None
+        current_schema = self.cli.cli_context.current_schema if self.cli.cli_context.current_schema else None
+
+        # 1. 语义模型和指标生成节点 - 使用相同的输入模型
         if isinstance(current_node, (GenSemanticModelAgenticNode, GenMetricsAgenticNode)):
             from datus.schemas.semantic_agentic_node_models import SemanticNodeInput
 
             return (
                 SemanticNodeInput(
                     user_message=user_message,
-                    catalog=self.cli.cli_context.current_catalog if self.cli.cli_context.current_catalog else None,
-                    database=self.cli.cli_context.current_db_name if self.cli.cli_context.current_db_name else None,
-                    db_schema=self.cli.cli_context.current_schema if self.cli.cli_context.current_schema else None,
+                    catalog=current_catalog,
+                    database=current_database,
+                    db_schema=current_schema,
                     prompt_version=None,
                     prompt_language="en",
                 ),
                 "semantic",
             )
+        # 2. SQL摘要节点 - 专门用于生成SQL查询的摘要
         elif isinstance(current_node, SqlSummaryAgenticNode):
             from datus.schemas.sql_summary_agentic_node_models import SqlSummaryNodeInput
 
             return (
                 SqlSummaryNodeInput(
                     user_message=user_message,
-                    catalog=self.cli.cli_context.current_catalog if self.cli.cli_context.current_catalog else None,
-                    database=self.cli.cli_context.current_db_name if self.cli.cli_context.current_db_name else None,
-                    db_schema=self.cli.cli_context.current_schema if self.cli.cli_context.current_schema else None,
+                    catalog=current_catalog,
+                    database=current_database,
+                    db_schema=current_schema,
                     prompt_version=None,
                     prompt_language="en",
                 ),
                 "sql_summary",
             )
+        # 3. 外部知识节点 - 不需要数据库上下文
         elif isinstance(current_node, GenExtKnowledgeAgenticNode):
             from datus.schemas.ext_knowledge_agentic_node_models import ExtKnowledgeNodeInput
 
@@ -241,15 +282,16 @@ class ChatCommands:
                 ),
                 "ext_knowledge",
             )
+        # 4. 通用SQL生成节点 - 最常用，需要所有上下文信息
         elif isinstance(current_node, GenSQLAgenticNode):
             from datus.schemas.gen_sql_agentic_node_models import GenSQLNodeInput
 
             return (
                 GenSQLNodeInput(
                     user_message=user_message,
-                    catalog=self.cli.cli_context.current_catalog if self.cli.cli_context.current_catalog else None,
-                    database=self.cli.cli_context.current_db_name if self.cli.cli_context.current_db_name else None,
-                    db_schema=self.cli.cli_context.current_schema if self.cli.cli_context.current_schema else None,
+                    catalog=current_catalog,
+                    database=current_database,
+                    db_schema=current_schema,
                     schemas=at_tables,
                     metrics=at_metrics,
                     reference_sql=at_sqls,
@@ -259,28 +301,30 @@ class ChatCommands:
                 ),
                 "gensql",
             )
+        # 5. 报告生成节点 - 需要数据库上下文但不包含@引用信息
         elif isinstance(current_node, GenReportAgenticNode):
             from datus.schemas.gen_report_agentic_node_models import GenReportNodeInput
 
             return (
                 GenReportNodeInput(
                     user_message=user_message,
-                    catalog=self.cli.cli_context.current_catalog if self.cli.cli_context.current_catalog else None,
-                    database=self.cli.cli_context.current_db_name if self.cli.cli_context.current_db_name else None,
-                    db_schema=self.cli.cli_context.current_schema if self.cli.cli_context.current_schema else None,
+                    catalog=current_catalog,
+                    database=current_database,
+                    db_schema=current_schema,
                     prompt_version=None,
                 ),
                 "gen_report",
             )
+        # 6. 默认聊天节点 - 使用通用聊天输入模型
         else:
             from datus.schemas.chat_agentic_node_models import ChatNodeInput
 
             return (
                 ChatNodeInput(
                     user_message=user_message,
-                    catalog=self.cli.cli_context.current_catalog if self.cli.cli_context.current_catalog else None,
-                    database=self.cli.cli_context.current_db_name if self.cli.cli_context.current_db_name else None,
-                    db_schema=self.cli.cli_context.current_schema if self.cli.cli_context.current_schema else None,
+                    catalog=current_catalog,
+                    database=current_database,
+                    db_schema=current_schema,
                     schemas=at_tables,
                     metrics=at_metrics,
                     reference_sql=at_sqls,
@@ -292,32 +336,50 @@ class ChatCommands:
     def execute_chat_command(
         self, message: str, plan_mode: bool = False, subagent_name: str = None, compact_when_new_subagent: bool = True
     ):
-        """Execute a chat command with simplified node management."""
+        """执行聊天命令，使用简化的节点管理。
+
+        这是CLI聊天功能的核心方法，负责处理用户消息并返回AI响应。
+        主要流程包括：解析@引用、判断是否需要新节点、执行流式处理、显示结果。
+
+        Args:
+            message: 用户输入的消息内容
+            plan_mode: 是否处于计划模式（默认为False）
+            subagent_name: 子代理名称，指定使用特定的AI代理（默认为None）
+            compact_when_new_subagent: 创建新子代理时是否压缩当前会话（默认为True）
+
+        """
+        # 检查消息是否为空
         if not message.strip():
             self.console.print("[yellow]Please provide a message to chat with the AI.[/]")
             return
 
         try:
+            # 步骤1：解析消息中的@引用上下文（@table、@metric、@sql）
             at_tables, at_metrics, at_sqls = self.cli.at_completer.parse_at_context(message)
 
-            # Decision logic: determine if we need to create a new node
+            # 步骤2：决策逻辑 - 判断是否需要创建新节点
+            # 根据当前节点和subagent_name决定是否要切换节点
             need_new_node = self._should_create_new_node(subagent_name)
 
-            # If creating new node and have existing node, trigger compact
+            # 步骤3：如果需要新节点且存在现有节点，触发压缩操作
+            # 在切换到新节点前，先压缩当前会话以节省token
             if need_new_node and self.current_node is not None and compact_when_new_subagent:
                 self._trigger_compact_for_current_node()
 
-            # Get or create node
+            # 步骤4：获取或创建节点
             if need_new_node:
+                # 创建新的节点实例
                 self.current_node = self._create_new_node(subagent_name)
+                # 记录当前子代理名称
                 self.current_subagent_name = subagent_name if subagent_name else None
+                # 保持向后兼容性：同时更新chat_node
                 if not subagent_name:
                     self.chat_node = self.current_node
 
-            # Use current node
+            # 使用当前节点（可能是新创建或现有的）
             current_node = self.current_node
 
-            # Show session info for existing session
+            # 步骤5：显示现有会话信息（如果不是新建节点）
             if not need_new_node:
                 session_info = current_node.get_session_info()
                 if session_info.get("session_id"):
@@ -327,26 +389,28 @@ class ChatCommands:
                     )
                     self.console.print(session_display)
 
-            # Create input using shared method
+            # 步骤6：创建节点输入对象
+            # 使用共享方法根据节点类型创建相应的输入模型
             node_input, node_type = self.create_node_input(
                 message, current_node, at_tables, at_metrics, at_sqls, plan_mode
             )
 
-            # Set input on the node (new interface: input is accessed from self.input)
+            # 步骤7：将输入设置到节点
+            # 新接口：输入通过self.input访问
             current_node.input = node_input
 
-            # Display streaming execution
+            # 步骤8：显示流式执行进度
             self.console.print(f"[bold green]Processing {node_type} request...[/]")
 
-            # Initialize action history display for incremental actions only
+            # 步骤9：初始化动作历史显示
+            # 为增量动作初始化显示组件
             action_display = ActionHistoryDisplay(self.console)
             incremental_actions = []
 
-            # Run streaming execution with real-time display
-            # Use live display for both normal and plan mode
-            # Plan mode now coordinates properly using execution_controller
+            # 步骤10：运行流式执行与实时显示
+            # 使用实时显示处理普通模式和计划模式
             if not plan_mode:
-                # Normal mode: use full Live Display
+                # 普通模式：使用完整的实时显示
                 with action_display.display_streaming_actions(incremental_actions):
 
                     async def run_chat_stream():
@@ -355,8 +419,8 @@ class ChatCommands:
 
                     asyncio.run(run_chat_stream())
             else:
-                # Plan mode: use Live Display but allow it to be stopped/unregistered
-                # The display will be stopped by plan_hooks when showing menus
+                # 计划模式：使用实时显示但允许停止/取消注册
+                # 当显示菜单时，显示将被plan_hooks停止
                 with action_display.display_streaming_actions(incremental_actions):
 
                     async def run_chat_stream():
@@ -365,39 +429,42 @@ class ChatCommands:
 
                     asyncio.run(run_chat_stream())
 
-            # Display final response from the last successful action
+            # 步骤11：显示最后成功动作的响应
             if incremental_actions:
                 final_action = incremental_actions[-1]
 
+                # 检查最终动作是否成功且有输出
                 if (
                     final_action.output
                     and isinstance(final_action.output, dict)
                     and final_action.status == ActionStatus.SUCCESS
                 ):
-                    # Parse response to extract clean SQL and output
+                    # 解析响应以提取干净的SQL和输出
                     sql = None
                     clean_output = None
 
-                    # First check if SQL and response are directly available
+                    # 首先检查SQL和响应是否直接可用
                     sql = final_action.output.get("sql")
                     response = final_action.output.get("response")
 
-                    # Try to extract SQL and output from the string response
+                    # 尝试从字符串响应中提取SQL和输出
                     extracted_sql, extracted_output = self._extract_sql_and_output_from_content(response)
+                    # 优先使用直接获取的SQL，其次使用提取的SQL
                     sql = sql or extracted_sql
 
-                    # Determine clean_output based on sql and extracted_output
+                    # 根据SQL和提取的输出确定clean_output
                     clean_output = None
 
                     if sql:
-                        # Has SQL: use extracted_output or fallback to response
+                        # 有SQL：使用提取的输出或回退到原始响应
                         clean_output = extracted_output or response
+                        # 添加到SQL上下文以便后续参考
                         self.add_in_sql_context(sql, clean_output, incremental_actions)
                     elif isinstance(extracted_output, dict):
-                        # No SQL, extracted_output is dict: get raw_output from dict
+                        # 没有SQL，提取的输出是字典：从字典中获取raw_output
                         clean_output = extracted_output.get("raw_output", str(extracted_output))
                     else:
-                        # No SQL, no extracted_output: try to parse raw_output from response string
+                        # 没有SQL，没有提取的输出：尝试从响应字符串解析raw_output
                         try:
                             import ast
 
@@ -410,31 +477,38 @@ class ChatCommands:
                         except (ValueError, SyntaxError):
                             clean_output = response
 
-                    # Display using simple, focused methods
+                    # 使用简单、专注的方法显示结果
+                    # 显示SQL（如果存在）
                     if sql:
                         self._display_sql_with_copy(sql)
 
-                    # Check for semantic_models field (from SemanticAgenticNode)
+                    # 检查语义模型字段（来自SemanticAgenticNode）
                     semantic_models = final_action.output.get("semantic_models")
                     if semantic_models:
                         self._display_semantic_model(semantic_models)
 
-                    # Check for sql_summary_file field (from SqlSummaryAgenticNode)
+                    # 检查SQL摘要文件字段（来自SqlSummaryAgenticNode）
                     sql_summary_file = final_action.output.get("sql_summary_file")
                     if sql_summary_file:
                         self._display_sql_summary_file(sql_summary_file)
 
-                    # Check for ext_knowledge_file field (from ExtKnowledgeAgenticNode)
+                    # 检查外部知识文件字段（来自ExtKnowledgeAgenticNode）
                     ext_knowledge_file = final_action.output.get("ext_knowledge_file")
                     if ext_knowledge_file:
                         self._display_ext_knowledge_file(ext_knowledge_file)
 
+                    # 显示markdown格式的响应
                     if clean_output:
                         self._display_markdown_response(clean_output)
+
+                    # 保存最后执行的动作列表
                     self.last_actions = incremental_actions
+
+                # 显示提示信息
                 self.cli.console.print("[bold bright_black]Use `Ctrl+O` to display trace details.[/]")
 
-            # Update chat history for potential context in future interactions
+            # 步骤12：更新聊天历史记录
+            # 为未来交互中的潜在上下文保存历史记录
             self.chat_history.append(
                 {
                     "user": message,
@@ -448,6 +522,7 @@ class ChatCommands:
             )
 
         except Exception as e:
+            # 捕获并显示任何异常
             logger.error(f"Chat error: {str(e)}")
             self.console.print(f"[bold red]Error:[/] {str(e)}")
 
