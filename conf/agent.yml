@@ -1,0 +1,86 @@
+agent:
+  benchmark:
+    california_schools:
+      ext_knowledge_key: evidence
+      gold_result_path: california_schools.csv
+      gold_sql_key: gold_sql
+      gold_sql_path: california_schools.csv
+      question_file: california_schools.csv
+      question_id_key: task_id
+      question_key: question
+  export:
+    max_lines: 1000
+  models:
+    deepseek:
+      api_key: sk-13a842a00f7e48028971c2ce1cee21b6
+      base_url: https://api.deepseek.com
+      model: deepseek-chat
+      type: deepseek
+      vendor: deepseek
+    deepseek-v3:
+      api_key: ${DEEPSEEK_API_KEY}
+      base_url: https://api.deepseek.com
+      model: deepseek-chat
+      type: deepseek
+      vendor: deepseek
+    kimi-k2-turbo:
+      api_key: ${KIMI_API_KEY}
+      base_url: https://api.moonshot.cn/v1
+      model: kimi-k2-turbo-preview
+      type: openai
+      vendor: openai
+  namespace:
+    california_schools:
+      name: california_schools
+      type: sqlite
+      uri: ~/.datus/benchmark/california_schools/california_schools.sqlite
+    local_duckdb:
+      name: duckdb-demo
+      type: duckdb
+      uri: ~/.datus/sample/duckdb-demo.duckdb
+    test:
+      type: sqlite
+      path_pattern: C:\Users\silen\.datus\benchmark\bird\dev_20240627\dev_databases\**\*.sqlite
+  nodes:
+    chat:
+      prompt_version: '1.0'
+    generate_sql:
+      prompt_version: '1.0'
+    reasoning:
+      prompt_version: '1.0'
+    reflect:
+      prompt_version: '2.1'
+    schema_linking:
+      matching_rate: fast
+  storage:
+    base_path: C:\Users\silen\.datus\data
+    embedding_device_type: cpu
+    workspace_root: C:\Users\silen\.datus\workspace
+  target: deepseek
+  agentic_nodes:
+    datus_schools:
+      system_prompt: datus_schools
+      prompt_version: '1.0'
+      prompt_language: en
+      agent_description: ''
+      tools: db_tools, date_parsing_tools
+      mcp: ''
+      rules: []
+    datus_schools_context:
+      system_prompt: datus_schools_context
+      prompt_version: '1.0'
+      prompt_language: en
+      agent_description: ''
+      tools: context_search_tools, db_tools, date_parsing_tools
+      mcp: ''
+      rules: []
+  workflow:
+    plan: test
+    test:
+      - generate_sql
+      - execute_sql
+      - output
+    datus_schools_context:
+      - datus_schools_context
+      - execute_sql
+      - output
