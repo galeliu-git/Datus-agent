@@ -12,7 +12,7 @@ agent:
     max_lines: 1000
   models:
     deepseek:
-      api_key: sk-13a842a00f7e48028971c2ce1cee21b6
+      api_key: ${DEEPSEEK_API_KEY}
       base_url: https://api.deepseek.com
       model: deepseek-chat
       type: deepseek
