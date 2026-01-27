@@ -13,12 +13,13 @@ Handles:
 import os
 from argparse import Namespace
 from functools import lru_cache
-from typing import Any, Dict, List
+from typing import Any, Dict, List,Tuple
 
 import structlog
 
 from datus.cli.repl import DatusCLI
 from datus.configuration.agent_config_loader import parse_config_path
+from datus.models.base import LLMBaseModel
 
 logger = structlog.get_logger("web_chatbot.config")
 
@@ -170,3 +171,78 @@ class ConfigManager:
         except Exception as e:
             logger.error(f"Failed to get current chat model: {e}")
             return "unknown"
+
+    def switch_chat_model(self, new_model_name: str) -> bool:
+        """
+        切换聊天模型
+
+        Args:
+            new_model_name: 新模型名称
+
+        Returns:
+            bool: 成功返回True，失败返回False
+        """
+        try:
+
+            # 获取聊天节点
+            if not hasattr(self.cli, 'chat_commands') or not self.cli.chat_commands:
+                logger.error("聊天命令未初始化")
+                return False
+
+            chat_node = self.cli.chat_commands.chat_node
+            if not chat_node:
+                # 如果没有聊天节点，则初始化一个新的聊天节点
+                # 获取当前选择的子代理名称，如果没有则使用None创建默认聊天节点
+                subagent_name = self.cli.chat_commands.current_subagent_name
+                new_node = self.cli.chat_commands._create_new_node(subagent_name=subagent_name)
+                # 更新所有相关引用
+                self.cli.chat_commands.current_node = new_node
+                self.cli.chat_commands.chat_node = new_node
+                chat_node = new_node
+
+            # 切换模型
+            chat_node.model = new_model_name
+            # 初始化模型
+            chat_node._initialize()
+            logger.info(f"成功切换聊天模型为: {new_model_name}")
+            return True
+
+        except Exception as e:
+            logger.error(f"切换聊天模型时发生错误: {e}")
+            return False
+
+    def validate_model_switch(self, model_name: str) -> Tuple[bool, str]:
+        """
+        验证模型切换是否可行
+
+        Args:
+            model_name: 要切换的模型名称
+
+        Returns:
+            Tuple[bool, str]: (是否有效, 错误消息)
+        """
+        # 检查模型是否存在
+        if not self.cli or not hasattr(self.cli, 'agent_config'):
+            return False, "CLI未初始化"
+
+        if model_name not in self.cli.agent_config.models:
+            available = ", ".join(self.cli.agent_config.models.keys())
+            return False, f"未找到模型'{model_name}'。可用模型: {available}"
+
+        # 检查聊天节点是否存在
+        if not hasattr(self.cli, 'chat_commands') or not self.cli.chat_commands:
+            return False, "聊天命令未初始化"
+
+        chat_node = self.cli.chat_commands.chat_node
+        if not chat_node:
+            return False, "聊天节点未初始化"
+
+        # 检查模型是否可以初始化（API密钥、连接等）
+        try:
+            test_model = LLMBaseModel.create_model(
+                model_name=model_name,
+                agent_config=self.cli.agent_config
+            )
+            return True, ""
+        except Exception as e:
+            return False, f"模型验证失败: {str(e)}"

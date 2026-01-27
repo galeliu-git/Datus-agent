@@ -5,6 +5,7 @@
 /.idea
 /.vscode
 /.cursor
+/conf/agent.yml
 .pytest_cache
 .mypy_cache
 **/__pycache__

@@ -245,24 +245,81 @@ class StreamlitChatbot:
                 if hasattr(self.cli.agent_config, "current_namespace"):
                     st.info(f"**{self.cli.agent_config.current_namespace}**")
 
-                # Model selection
-                st.subheader("🤖 Chat Model")
+                # # Model selection
+                # st.subheader("🤖 Chat Model")
+                # available_models = self.get_available_models()
+                # current_model = self.get_current_chat_model()
+
+                # if available_models:
+                #     selected_model = st.selectbox(
+                #         "Select Model:",
+                #         options=available_models,
+                #         index=available_models.index(current_model) if current_model in available_models else 0,
+                #         help="Choose the model for chat conversations",
+                #     )
+
+                #     if selected_model != current_model:
+                #         st.info(f"Model changed to: {selected_model}")
+                #         # Note: Model switching would require config reload
+                #         # For now, just show the selection
+                # 模型选择与切换处理
+                st.subheader("🤖 聊天模型")
                 available_models = self.get_available_models()
                 current_model = self.get_current_chat_model()
 
                 if available_models:
+                    # 初始化会话状态中的模型选择
+                    if 'selected_model' not in st.session_state:
+                        st.session_state.selected_model = current_model
+
+                    def on_model_change():
+                        """模型选择更改时的回调函数"""
+                        # 新值存储在 selectbox 的 key 对应的 session_state 中
+                        new_model = st.session_state.model_selector
+                        old_model = st.session_state.selected_model
+                        if new_model and new_model != old_model:
+                            logger.info(f"模型选择从 {old_model} 更改为 {new_model}")
+
+                            # 尝试切换模型
+                            with st.spinner(f"正在切换到模型: {new_model}..."):
+                                success = self.config_manager.switch_chat_model(new_model)
+
+                                if success:
+                                    # 关键修复：正确更新 session_state
+                                    st.session_state.selected_model = new_model
+                                    st.success(f"✅ 模型已切换到: {new_model}")
+                                    logger.info(f"模型成功切换到: {new_model}")
+
+                                    # 记录切换历史
+                                    if 'model_switch_history' not in st.session_state:
+                                        st.session_state.model_switch_history = []
+                                    st.session_state.model_switch_history.append({
+                                        'timestamp': datetime.now().isoformat(),
+                                        'from': old_model,
+                                        'to': new_model
+                                    })
+                                else:
+                                    # 回滚选择 - 重要：恢复 selectbox 的显示
+                                    st.session_state.model_selector = old_model
+                                    st.error(f"❌ 切换模型到 {new_model} 失败")
+                                    logger.error(f"模型切换到 {new_model} 失败")
+
+                            # 重新运行以反映更改
+                            st.rerun()
+
                     selected_model = st.selectbox(
-                        "Select Model:",
+                        "选择模型:",
                         options=available_models,
-                        index=available_models.index(current_model) if current_model in available_models else 0,
-                        help="Choose the model for chat conversations",
+                        index=available_models.index(st.session_state.selected_model)
+                            if st.session_state.selected_model in available_models
+                            else 0,
+                        help="为聊天对话选择模型",
+                        key="model_selector",
+                        on_change=on_model_change,
                     )
-
                     if selected_model != current_model:
-                        st.info(f"Model changed to: {selected_model}")
-                        # Note: Model switching would require config reload
-                        # For now, just show the selection
-
+                        st.info(f"test-模型切换到: {selected_model}")
+                        logger.info(f"test-模型成功切换到: {selected_model}")
                 # Session controls
                 st.markdown("---")
                 st.subheader("💬 Session")
@@ -762,7 +819,29 @@ class StreamlitChatbot:
                             from datus.cli.action_history_display import ActionContentGenerator
 
                             content_generator = ActionContentGenerator(enable_truncation=False)
+                            # 检查是否有待处理的模型切换
+                            if st.session_state.get('pending_model_switch'):
+                                pending_model = st.session_state.pending_model_switch
 
+                                try:
+                                    # 尝试切换模型
+                                    with st.status(f"正在切换到模型: {pending_model}..."):
+                                        success = self.config_manager.
+                                        (pending_model)
+
+                                        if success:
+                                            logger.info(f"在聊天执行前模型切换到: {pending_model}")
+                                            st.success(f"✅ 模型已切换到: {pending_model}")
+                                        else:
+                                            logger.error(f"模型切换到 {pending_model} 失败")
+                                            st.error(f"❌ 切换模型到 {pending_model} 失败")
+                                except Exception as e:
+                                    logger.error(f"切换模型时出错: {e}")
+                                    st.error(f"切换模型时出错: {str(e)}")
+
+                                # 清除待处理的切换（无论成功与否）
+                                st.session_state.pending_model_switch = None
+                            # 聊天执行
                             for action in self.execute_chat_stream(prompt):
                                 step_index += 1
                                 self.ui.render_action_item(chat_id, step_index, action, content_generator)

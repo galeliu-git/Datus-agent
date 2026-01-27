@@ -192,9 +192,9 @@ class ChatAgenticNode(GenSQLAgenticNode):
         self, action_history_manager: Optional[ActionHistoryManager] = None
     ) -> AsyncGenerator[ActionHistory, None]:
         """
-        Execute the chat interaction with streaming support.
+        执行支持流式传输的聊天交互。 
 
-        Input is accessed from self.input instead of parameters.
+        输入数据从 self.input 获取，而不是通过参数传递。
 
         Args:
             action_history_manager: Optional action history manager
