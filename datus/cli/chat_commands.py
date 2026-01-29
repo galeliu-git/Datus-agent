@@ -178,6 +178,19 @@ class ChatCommands:
                     agent_config=self.cli.agent_config,
                     execution_mode="interactive",
                 )
+            # 6. 聊天分析节点
+            elif subagent_name == "chat_analysis":
+                from datus.agent.node.chat_analysis_agentic_node import ChatAnalysisAgenticNode
+
+                self.console.print(f"[dim]Creating new {subagent_name} session...[/]")
+                return ChatAnalysisAgenticNode(
+                    node_id=f"{subagent_name}_cli",
+                    description="Chat analysis node for data analysis with prediction tools",
+                    node_type="chat_analysis",
+                    input_data=None,
+                    agent_config=self.cli.agent_config,
+                    tools=None,
+                )
             # 默认情况：创建通用SQL生成节点
             else:
                 from datus.agent.node.gen_sql_agentic_node import GenSQLAgenticNode
@@ -228,6 +241,7 @@ class ChatCommands:
 
         """
         # 导入所有可能的节点类型
+        from datus.agent.node.chat_analysis_agentic_node import ChatAnalysisAgenticNode
         from datus.agent.node.gen_ext_knowledge_agentic_node import GenExtKnowledgeAgenticNode
         from datus.agent.node.gen_metrics_agentic_node import GenMetricsAgenticNode
         from datus.agent.node.gen_report_agentic_node import GenReportAgenticNode
@@ -315,7 +329,25 @@ class ChatCommands:
                 ),
                 "gen_report",
             )
-        # 6. 默认聊天节点 - 使用通用聊天输入模型
+        # 6. 聊天分析节点 - 支持数据分析和预测功能
+        elif isinstance(current_node, ChatAnalysisAgenticNode):
+            from datus.schemas.chat_analysis_agentic_node_models import ChatAnalysisNodeInput
+
+            return (
+                ChatAnalysisNodeInput(
+                    user_message=user_message,
+                    catalog=current_catalog,
+                    database=current_database,
+                    db_schema=current_schema,
+                    schemas=at_tables,
+                    metrics=at_metrics,
+                    reference_sql=at_sqls,
+                    plan_mode=plan_mode,
+                    prompt_version=None,
+                ),
+                "chat_analysis",
+            )
+        # 7. 默认聊天节点 - 使用通用聊天输入模型
         else:
             from datus.schemas.chat_agentic_node_models import ChatNodeInput
 

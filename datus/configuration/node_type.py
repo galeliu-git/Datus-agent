@@ -7,6 +7,7 @@ from typing import Optional, get_type_hints
 from pydantic import BaseModel, create_model
 
 from datus.schemas.chat_agentic_node_models import ChatNodeInput
+from datus.schemas.chat_analysis_agentic_node_models import ChatAnalysisNodeInput
 from datus.schemas.compare_node_models import CompareInput
 from datus.schemas.date_parser_node_models import DateParserInput
 from datus.schemas.doc_search_node_models import DocSearchInput
@@ -56,6 +57,7 @@ class NodeType:
     TYPE_SQL_SUMMARY = "sql_summary"  # For SQL summary generation
     TYPE_GEN_REPORT = "gen_report"  # For generic report generation
     TYPE_EXT_KNOWLEDGE = "ext_knowledge"  # For external knowledge generation
+    TYPE_CHAT_ANALYSIS = "chat_analysis"  # For chat-based data analysis with prediction tools
 
     ACTION_TYPES = [
         TYPE_SCHEMA_LINKING,
@@ -74,6 +76,7 @@ class NodeType:
         TYPE_SQL_SUMMARY,
         TYPE_GEN_REPORT,
         TYPE_EXT_KNOWLEDGE,
+        TYPE_CHAT_ANALYSIS,
     ]
 
     NODE_TYPE_DESCRIPTIONS = {
@@ -99,6 +102,7 @@ class NodeType:
         TYPE_SQL_SUMMARY: "SQL summary generation with conversational AI",
         TYPE_GEN_REPORT: "Generic report generation with semantic and database tools",
         TYPE_EXT_KNOWLEDGE: "External knowledge generation with conversational AI",
+        TYPE_CHAT_ANALYSIS: "Chat-based data analysis with prediction tools",
     }
 
     @classmethod
@@ -148,6 +152,8 @@ class NodeType:
             input_data_cls = GenReportNodeInput
         elif node_type == NodeType.TYPE_EXT_KNOWLEDGE:
             input_data_cls = ExtKnowledgeNodeInput
+        elif node_type == NodeType.TYPE_CHAT_ANALYSIS:
+            input_data_cls = ChatAnalysisNodeInput
         else:
             raise NotImplementedError(f"node_type {node_type} not implemented")
 

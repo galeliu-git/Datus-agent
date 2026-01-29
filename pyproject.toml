@@ -63,6 +63,9 @@ dependencies = [
     "uv>=0.9.9",
     "plotly>=6.5.0",
     "charset-normalizer>=3.4.2",
+    # Prediction dependencies
+    "xgboost>=2.1.0",
+    "numpy>=1.24.0",
 ]
 
 [project.optional-dependencies]

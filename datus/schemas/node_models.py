@@ -491,22 +491,46 @@ class SQLContext(BaseModel):
         pass
 
 
+class AnalysisContext(BaseModel):
+    """用于存储聊天分析节点分析上下文的模型"""
+    analysis_type: str = Field(..., description="执行的分析类型")
+    results: Dict[str, Any] = Field(..., description="分析结果")
+    insights: List[str] = Field(default_factory=list, description="分析的关键洞察")
+
+    def to_dict(self):
+        return self.model_dump()
+
+
+class PredictionContext(BaseModel):
+    """用于存储趋势预测工具预测上下文的模型"""
+    model_type: str = Field(..., description="使用的预测模型类型")
+    predictions: List[float] = Field(..., description="预测值")
+    parameters: Dict[str, Any] = Field(default_factory=dict, description="预测参数")
+
+    model_config = {"protected_namespaces": ()}
+
+    def to_dict(self):
+        return self.model_dump()
+
+
 class Context(BaseModel):
     """
-    Model for context information used in SQL generation.
+    用于 SQL 生成中使用的上下文信息模型
     """
 
-    sql_contexts: List[SQLContext] = Field(default_factory=list, description="The SQL contexts")
-    table_schemas: List[TableSchema] = Field(default_factory=list, description="The table schemas")
-    table_values: List[TableValue] = Field(default_factory=list, description="The table values")
-    metrics: List[Metric] = Field(default_factory=list, description="The metrics")
-    doc_search_keywords: List[str] = Field(default_factory=list, description="The document search keywords")
-    document_result: Optional[DocSearchResult] = Field(default=None, description="The document result")
-    parallel_results: Optional[Dict[str, Any]] = Field(default=None, description="Results from parallel node execution")
+    sql_contexts: List[SQLContext] = Field(default_factory=list, description="SQL 上下文列表")
+    table_schemas: List[TableSchema] = Field(default_factory=list, description="表架构列表")
+    table_values: List[TableValue] = Field(default_factory=list, description="表值列表")
+    metrics: List[Metric] = Field(default_factory=list, description="指标列表")
+    doc_search_keywords: List[str] = Field(default_factory=list, description="文档搜索关键词列表")
+    document_result: Optional[DocSearchResult] = Field(default=None, description="文档搜索结果")
+    parallel_results: Optional[Dict[str, Any]] = Field(default=None, description="并行节点执行结果")
     last_selected_result: Optional[Any] = Field(
-        default=None, description="The last selected result from selection node"
+        default=None, description="从选择节点选择的最后结果"
     )
-    selection_metadata: Optional[Dict[str, Any]] = Field(default=None, description="Metadata about selection process")
+    selection_metadata: Optional[Dict[str, Any]] = Field(default=None, description="关于选择过程的元数据")
+    analysis_contexts: List[AnalysisContext] = Field(default_factory=list, description="分析上下文列表")
+    prediction_contexts: List[PredictionContext] = Field(default_factory=list, description="预测上下文列表")
 
     def update_schema_and_values(self, table_schemas: List[TableSchema], table_values: List[TableValue]):
         """
